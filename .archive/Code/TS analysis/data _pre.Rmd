@@ -1,0 +1,161 @@
+---
+title: "data_pre"
+output: html_document
+date: "2024-11-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r}
+# Load libraries
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(keras3)
+library(tensorflow)
+library(forecast)
+ls("package:forecast")
+```
+
+```{r}
+# Load the dataset
+temp_data <- read.csv("US_City_Temp_Data.csv")
+#str(temp_data)
+```
+
+
+```{r}
+# Convert the `time` column to Date format
+temp_data$time <- as.Date(temp_data$time, format = "%Y-%m-%d")
+```
+
+```{r}
+# Explore the data
+str(temp_data)
+summary(temp_data)
+```
+
+
+```{r}
+# Select data for Albuquerque
+city_data <- temp_data %>% select(time, albuquerque) %>% na.omit()
+```
+
+
+```{r}
+# Convert to time series
+city_ts <- ts(city_data$albuquerque, start = c(1948, 1), frequency = 12)
+```
+
+
+```{r}
+# Plot the time series
+plot(city_ts, main = "Monthly Temperature for Albuquerque", ylab = "Temperature (°C)", xlab = "Time")
+```
+```{r}
+ggplot(city_data, aes(x = time, y = albuquerque)) +
+  geom_line() +
+  labs(title = "Temperature Over Time - Albuquerque", x = "Date", y = "Temperature (°C)")
+
+```
+
+
+
+```{r}
+decomposed <- decompose(city_ts)
+plot(decomposed)
+
+```
+
+```{r}
+adf.test(city_ts)
+```
+
+```{r}
+city_ts_diff <- diff(city_ts, differences = 1)
+adf.test(city_ts_diff)
+```
+
+```{r}
+arima_model <- auto.arima(city_ts)
+summary(arima_model)
+```
+
+
+```{r}
+arima_forecast <- forecast(arima_model, h = 12)
+plot(arima_forecast)
+
+```
+
+
+```{r}
+#install.packages("keras3")
+library(keras3)
+
+# Scaling data and reshaping for LSTM
+scaled_data <- scale(city_data$albuquerque)
+X_train <- array(scaled_data, dim = c(length(scaled_data), 1, 1))
+Y_train <- scaled_data
+
+# Define the model
+model <- keras_model_sequential() %>%
+  layer_lstm(units = 50, return_sequences = TRUE, input_shape = c(1, 1)) %>%
+  layer_lstm(units = 50, return_sequences = FALSE) %>%
+  layer_dense(units = 1)
+
+# Compile the model
+model %>% compile(
+  optimizer = "adam",
+  loss = "mean_squared_error"
+)
+
+# Print model summary
+summary(model)
+
+
+
+```
+
+
+```{r}
+scaled_data <- scale(city_data$albuquerque)
+```
+
+```{r}
+X_train <- array(scaled_data, dim = c(length(scaled_data), 1, 1))
+Y_train <- scaled_data
+```
+
+
+```{r}
+model <- keras_model_sequential() %>%
+  layer_lstm(units = 50, input_shape = c(1, 1), return_sequences = TRUE) %>%
+  layer_lstm(units = 50, return_sequences = FALSE) %>%
+  layer_dense(units = 1)
+```
+

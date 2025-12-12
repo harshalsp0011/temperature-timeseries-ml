@@ -1,0 +1,33 @@
+Plan of Study:
+LSTM Model Refinement:
+Implement dropout layers in the LSTM model to prevent overfitting
+Experiment with different LSTM architectures (e.g., stacked LSTM, bidirectional LSTM)
+Conduct hyperparameter tuning for the LSTM model (e.g., number of units, learning rate)
+Hybrid Model Development:
+Develop a hybrid ARIMA-LSTM model by combining predictions from both models
+Explore different integration strategies for the hybrid model (e.g., weighted average, using ARIMA for trend and LSTM for residuals)
+Comprehensive Evaluation Strategy:
+Implement additional evaluation metrics beyond RMSE:
+a) Mean Absolute Error (MAE)
+b) Mean Absolute Percentage Error (MAPE)
+c) Symmetric Mean Absolute Percentage Error (SMAPE)
+Conduct performance comparisons across different forecast horizons (e.g., 1-month, 3-month, 6-month forecasts)
+Implement time series cross-validation for more robust model evaluation
+Multi-City Analysis:
+Extend the analysis to multiple U.S. cities beyond Albuquerque
+Compare model performances across different geographical locations and climate patterns
+Advanced Visualization:
+Create more comprehensive visualizations to illustrate model comparisons and forecast accuracies
+Implement residual analysis plots (e.g., ACF, PACF plots)
+Develop forecast uncertainty visualizations (e.g., fan charts)
+Statistical Testing:
+Implement the Diebold-Mariano test to formally compare forecast accuracies between models
+Code Optimization and Documentation:
+Refactor the code for improved efficiency and readability
+Enhance code comments and documentation for better reproducibility
+Timeline:
+Weeks 1-2: LSTM refinement and hybrid model development
+Week 3: Comprehensive evaluation and multi-city analysis
+Week 4: Advanced visualization and statistical testing
+Week 5: Code optimization, documentation, and final report preparation
+This plan builds upon your existing work, focusing on enhancing the LSTM model, developing the hybrid approach, and conducting a more comprehensive evaluation across multiple cities. It also emphasizes the importance of advanced visualization and statistical testing to provide a thorough analysis of the models' performance.

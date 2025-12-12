@@ -1,0 +1,145 @@
+---
+title: "Tempme"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
+```{r  }
+# Load libraries
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(keras3)
+library(tensorflow)
+library(forecast)
+ls("package:forecast")
+
+
+
+
+# Load the dataset
+temp_data <- read.csv("US_City_Temp_Data.csv")
+#str(temp_data)
+
+
+
+# Convert the `time` column to Date format
+temp_data$time <- as.Date(temp_data$time, format = "%Y-%m-%d")
+
+
+
+# Explore the data
+str(temp_data)
+summary(temp_data)
+
+
+
+# Select data for Albuquerque
+city_data <- temp_data %>% select(time, albuquerque) %>% na.omit()
+
+
+
+# Convert to time series
+city_ts <- ts(city_data$albuquerque, start = c(1948, 1), frequency = 12)
+
+
+
+# Plot the time series
+plot(city_ts, main = "Monthly Temperature for Albuquerque", ylab = "Temperature (°C)", xlab = "Time")
+
+
+ggplot(city_data, aes(x = time, y = albuquerque)) +
+  geom_line() +
+  labs(title = "Temperature Over Time - Albuquerque", x = "Date", y = "Temperature (°C)")
+
+
+
+decomposed <- decompose(city_ts)
+plot(decomposed)
+
+
+adf.test(city_ts)
+
+
+city_ts_diff <- diff(city_ts, differences = 1)
+adf.test(city_ts_diff)
+```
+
+```{r }
+arima_model <- auto.arima(city_ts)
+summary(arima_model)
+
+
+arima_forecast <- forecast(arima_model, h = 12)
+plot(arima_forecast)
+```
+
+
+
+```{r}
+#install.packages("keras3")
+library(keras3)
+
+# Scaling data and reshaping for LSTM
+# Prepare data for LSTM
+# Scale the data
+scaled_data <- scale(city_data$albuquerque)
+
+# Create sequences for LSTM
+create_sequences <- function(data, look_back = 1) {
+  n <- length(data)
+  x <- matrix(0, nrow = n - look_back, ncol = look_back)
+  y <- vector("numeric", n - look_back)
+  
+  for(i in 1:(n - look_back)) {
+    x[i,] <- data[i:(i + look_back - 1)]
+    y[i] <- data[i + look_back]
+  }
+  list(x = array(x, dim = c(nrow(x), look_back, 1)), y = y)
+}
+
+# Create training sequences
+look_back <- 12  # Use 12 months for sequence length
+sequences <- create_sequences(scaled_data, look_back)
+
+# Define LSTM model with dropout for regularization
+model <- keras_model_sequential() %>%
+  layer_lstm(units = 50, input_shape = c(look_back, 1), 
+            return_sequences = TRUE) %>%
+  layer_dropout(rate = 0.2) %>%
+  layer_lstm(units = 50, return_sequences = FALSE) %>%
+  layer_dropout(rate = 0.2) %>%
+  layer_dense(units = 1)
+
+# Compile model
+model %>% compile(
+  optimizer = optimizer_adam(learning_rate = 0.001),
+  loss = "mse"
+)
+
+# Train model
+history <- model %>% fit(
+  sequences$x, sequences$y,
+  epochs = 100,
+  batch_size = 32,
+  validation_split = 0.2,
+  verbose = 1
+)
+
+# Print model summary
+summary(model)
+
+
+
+```
+
+

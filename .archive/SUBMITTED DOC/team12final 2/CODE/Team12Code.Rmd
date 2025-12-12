@@ -1,0 +1,426 @@
+---
+title: "Tempme"
+output: html_document
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r  }
+
+# Load required libraries
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(keras)
+library(tensorflow)
+
+# Read the data
+temp_data <- read.csv("US_City_Temp_Data.csv")
+temp_data$time <- as.Date(temp_data$time)
+
+# Select data for Albuquerque
+city_data <- temp_data %>% 
+  select(time, albuquerque) %>% 
+  na.omit() %>%
+  mutate(time = as.Date(time))
+
+# Plot the time series
+ggplot(city_data, aes(x = time, y = albuquerque)) +
+  geom_line() +
+  labs(title = "Monthly Temperature for Albuquerque",
+       y = "Temperature (°C)",
+       x = "Time")
+
+# Decompose the time series
+city_ts <- ts(city_data$albuquerque, frequency = 12)
+decomposed <- decompose(city_ts, type = "additive")
+plot(decomposed)
+
+# ADF test function
+adf_test <- function(series) {
+  result <- adf.test(series)
+  cat('ADF Statistic:', result$statistic, '\n')
+  cat('p-value:', result$p.value, '\n')
+  cat('Critical Values:\n')
+  print(result$critical)
+}
+
+# Perform ADF test
+adf_test(city_data$albuquerque)
+
+# Fit ARIMA model
+arima_model <- auto.arima(city_ts)
+summary(arima_model)
+
+# Forecast
+forecast <- forecast(arima_model, h = 12)
+autoplot(forecast) +
+  labs(title = "ARIMA Forecast",
+       y = "Temperature (°C)",
+       x = "Time")
+```
+```{r  }
+
+# Load required libraries
+library(reticulate)
+library(tensorflow)
+library(keras)
+
+# Ensure 'city_data$albuquerque' exists and is numeric
+scaled_data <- scale(city_data$albuquerque)
+
+# Reshape data for LSTM (adjust time steps if needed)
+X_train <- array(scaled_data, dim = c(length(scaled_data), 1, 1))  # (samples, timesteps, features)
+Y_train <- scaled_data
+
+# Define the LSTM model
+model <- keras_model_sequential() %>%
+  layer_lstm(units = 50, return_sequences = TRUE, input_shape = list(1, 1)) %>%
+  layer_lstm(units = 50, return_sequences = FALSE) %>%
+  layer_dense(units = 1)
+
+
+
+# Compile the model
+model %>% compile(
+  optimizer = optimizer_adam(learning_rate = 0.001),
+  loss = "mean_squared_error"
+)
+
+# Train the model
+history <- model %>% fit(
+  X_train, Y_train,
+  epochs = 50,
+  batch_size = 32,
+  validation_split = 0.2,
+  verbose = 1
+)
+
+# Predictions
+lstm_predictions <- model %>% predict(X_train)
+
+# Visualize training history
+plot(history)
+
+
+```
+```{r  }
+library(Metrics)
+library(dplyr)
+
+
+
+# Ensure scaler is defined and corresponds to the scaling used earlier
+
+if (!exists("scaler")) {
+  scaled_data <- scale(city_data$albuquerque)  # Apply scaling
+  scaler <- list(
+    scale = attr(scaled_data, "scaled:scale"),  # Get the scale attribute
+    center = attr(scaled_data, "scaled:center") # Get the center attribute
+  )
+}
+
+
+# Unscale LSTM predictions
+unscaled_predictions <- (lstm_predictions * scaler$scale + scaler$center)[, 1]
+
+
+# Calculate RMSE for ARIMA
+if (exists("forecast") && !is.null(forecast$mean)) {
+  arima_rmse <- sqrt(mse(city_data$albuquerque[(nrow(city_data) - 11):nrow(city_data)], 
+                         forecast$mean))
+  cat("ARIMA RMSE:", arima_rmse, "\n")
+} else {
+  cat("ARIMA forecast results are not available.\n")
+}
+
+# Calculate RMSE for LSTM
+lstm_rmse <- sqrt(mse(city_data$albuquerque, unscaled_predictions))
+cat("LSTM RMSE:", lstm_rmse, "\n")
+
+# Hybrid model predictions
+if (exists("forecast") && !is.null(forecast$mean)) {
+  hybrid_predictions <- (forecast$mean + tail(unscaled_predictions, 12)) / 2
+  hybrid_rmse <- sqrt(mse(city_data$albuquerque[(nrow(city_data) - 11):nrow(city_data)], 
+                          hybrid_predictions))
+  cat("Hybrid RMSE:", hybrid_rmse, "\n")
+} else {
+  cat("ARIMA forecast results are required for hybrid model.\n")
+}
+
+```
+```{r  }
+library(ggplot2)
+
+# Ensure time variable is handled correctly
+
+
+# Ensure time variable is handled correctly
+if (!inherits(city_data$time, "Date")) {
+  city_data$time <- as.Date(city_data$time)
+}
+
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  time = c(city_data$time, 
+           seq(max(city_data$time) + 30, by = "month", length.out = 12)),
+  actual = c(city_data$albuquerque, rep(NA, 12)),
+  lstm = c(unscaled_predictions, rep(NA, 12)),
+  arima = c(rep(NA, nrow(city_data)), forecast$mean),
+  hybrid = c(rep(NA, nrow(city_data)), hybrid_predictions)
+)
+
+# Plot the data
+ggplot(plot_data, aes(x = time)) +
+  geom_line(aes(y = actual, color = "Actual"), na.rm = TRUE) +
+  geom_line(aes(y = lstm, color = "LSTM"), na.rm = TRUE) +
+  geom_line(aes(y = arima, color = "ARIMA"), na.rm = TRUE) +
+  geom_line(aes(y = hybrid, color = "Hybrid"), na.rm = TRUE) +
+  labs(title = "Temperature Forecast Comparison",
+       x = "Time",
+       y = "Temperature (°C)") +
+  scale_color_manual(values = c("Actual" = "blue", "LSTM" = "orange", 
+                                "ARIMA" = "green", "Hybrid" = "red")) +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+```
+```{r  }
+# Calculate total RMSE
+total_rmse <- arima_rmse + lstm_rmse
+
+# Calculate weights
+lstm_weight <- 1 - (lstm_rmse / total_rmse)
+arima_weight <- 1 - (arima_rmse / total_rmse)
+
+# Normalize weights to sum to 1
+sum_weights <- lstm_weight + arima_weight
+lstm_weight <- lstm_weight / sum_weights
+arima_weight <- arima_weight / sum_weights
+
+cat("LSTM Weight:", sprintf("%.4f", lstm_weight), "\n")
+cat("ARIMA Weight:", sprintf("%.4f", arima_weight), "\n")
+
+# Calculate weighted hybrid predictions
+hybrid_predictions <- (arima_weight * forecast$mean +
+                       lstm_weight * tail(unscaled_predictions, 12))
+
+# Calculate RMSE for weighted hybrid
+hybrid_rmse <- sqrt(mean((tail(city_data$albuquerque, 12) - hybrid_predictions)^2))
+cat("Weighted Hybrid RMSE:", hybrid_rmse, "\n")
+
+```
+```{r  }
+library(ggplot2)
+
+# Ensure time variable is handled correctly
+if (!inherits(city_data$time, "Date")) {
+  city_data$time <- as.Date(city_data$time)
+}
+
+# Create a sequence for forecast time points
+forecast_time <- seq(max(city_data$time) + 30, by = "month", length.out = 12)
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  time = c(city_data$time, forecast_time),
+  actual = c(city_data$albuquerque, rep(NA, 12)),
+  lstm = c(unscaled_predictions, rep(NA, 12)),
+  arima = c(rep(NA, nrow(city_data)), forecast$mean),
+  hybrid = c(rep(NA, nrow(city_data)), hybrid_predictions)
+)
+
+# Create the plot
+ggplot(plot_data, aes(x = time)) +
+  geom_line(aes(y = actual, color = "Actual")) +
+  geom_line(aes(y = lstm, color = "LSTM")) +
+  geom_line(aes(y = arima, color = "ARIMA")) +
+  geom_line(aes(y = hybrid, color = "Hybrid")) +
+  labs(
+    title = "Temperature Forecast Comparison",
+    x = "Time",
+    y = "Temperature (°C)"
+  ) +
+  scale_color_manual(values = c("Actual" = "blue", "LSTM" = "orange", 
+                                "ARIMA" = "green", "Hybrid" = "red")) +
+  theme_minimal() +
+  theme(legend.title = element_blank())
+
+```
+```{r  }
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(Metrics)
+
+# Ensure time variable is handled correctly
+if (!inherits(city_data$time, "Date")) {
+  city_data$time <- as.Date(city_data$time)
+}
+
+# Define forecast dates
+forecast_dates <- seq(from = max(city_data$time) + 30, by = "month", length.out = 12)
+
+# Create a list to store the plots
+plots <- list()
+
+# Plot 1: LSTM Predictions
+plots[[1]] <- ggplot() +
+  geom_line(data = city_data, aes(x = time, y = albuquerque, color = "Actual")) +
+  geom_line(data = data.frame(time = city_data$time, pred = unscaled_predictions), 
+            aes(x = time, y = pred, color = "LSTM")) +
+  labs(title = "LSTM Model Predictions", x = "Time", y = "Temperature (°C)") +
+  scale_color_manual(values = c("Actual" = "blue", "LSTM" = "orange")) +
+  theme_minimal()
+
+# Plot 2: ARIMA Predictions
+plots[[2]] <- ggplot() +
+  geom_line(data = city_data, aes(x = time, y = albuquerque, color = "Actual")) +
+  geom_line(data = data.frame(time = forecast_dates, pred = forecast$mean), 
+            aes(x = time, y = pred, color = "ARIMA")) +
+  labs(title = "ARIMA Model Predictions", x = "Time", y = "Temperature (°C)") +
+  scale_color_manual(values = c("Actual" = "blue", "ARIMA" = "green")) +
+  theme_minimal()
+
+# Plot 3: Simple Hybrid Predictions
+simple_hybrid <- (forecast$mean + tail(unscaled_predictions, 12)) / 2
+plots[[3]] <- ggplot() +
+  geom_line(data = city_data, aes(x = time, y = albuquerque, color = "Actual")) +
+  geom_line(data = data.frame(time = forecast_dates, pred = simple_hybrid), 
+            aes(x = time, y = pred, color = "Simple Hybrid")) +
+  labs(title = "Simple Hybrid Model Predictions", x = "Time", y = "Temperature (°C)") +
+  scale_color_manual(values = c("Actual" = "blue", "Simple Hybrid" = "red")) +
+  theme_minimal()
+
+# Plot 4: Weighted Hybrid Predictions
+plots[[4]] <- ggplot() +
+  geom_line(data = city_data, aes(x = time, y = albuquerque, color = "Actual")) +
+  geom_line(data = data.frame(time = forecast_dates, pred = hybrid_predictions), 
+            aes(x = time, y = pred, color = "Weighted Hybrid")) +
+  labs(title = "Weighted Hybrid Model Predictions", x = "Time", y = "Temperature (°C)") +
+  scale_color_manual(values = c("Actual" = "blue", "Weighted Hybrid" = "purple")) +
+  theme_minimal()
+
+# Arrange plots in a grid
+grid.arrange(grobs = plots, ncol = 2, nrow = 2)
+
+# Print model performance metrics
+cat("\nModel Performance Metrics:\n")
+cat(sprintf("LSTM RMSE: %.4f\n", lstm_rmse))
+cat(sprintf("ARIMA RMSE: %.4f\n", arima_rmse))
+cat(sprintf("Simple Hybrid RMSE: %.4f\n", 
+            sqrt(mean((tail(city_data$albuquerque, 12) - simple_hybrid)^2))))
+cat(sprintf("Weighted Hybrid RMSE: %.4f\n", hybrid_rmse))
+cat("\nModel Weights:\n")
+cat(sprintf("LSTM Weight: %.4f\n", lstm_weight))
+cat(sprintf("ARIMA Weight: %.4f\n", arima_weight))
+
+```
+```{r  }
+library(dplyr)
+library(forecast)
+library(keras)
+library(tensorflow)
+library(caret)
+library(ggplot2)
+
+# Create LSTM model
+create_lstm_model <- function() {
+  model <- keras_model_sequential() %>%
+    layer_lstm(units = 50, return_sequences = TRUE, input_shape = c(1, 1)) %>%
+    layer_lstm(units = 50, return_sequences = FALSE) %>%
+    layer_dense(units = 1)
+  
+  model %>% compile(
+    optimizer = "adam",
+    loss = "mean_squared_error"
+  )
+  
+  return(model)
+}
+
+# Analyze a single city's data
+analyze_city <- function(city_data, city_name) {
+  # Scale the data
+  scaler <- preProcess(city_data[city_name], method = c("center", "scale"))
+  scaled_data <- predict(scaler, city_data[city_name])
+  
+  # Prepare LSTM input
+  X_train <- array(scaled_data, dim = c(length(scaled_data), 1, 1))  # Ensure 3D shape (samples, time_steps, features)
+  model <- create_lstm_model()
+  model %>% fit(X_train, scaled_data, epochs = 50, batch_size = 32, verbose = 0)
+  lstm_predictions <- model %>% predict(X_train)
+  unscaled_predictions <- predict(scaler, lstm_predictions)
+  
+  # ARIMA model
+  arima_model <- auto.arima(city_data[[city_name]])
+  forecast_result <- forecast(arima_model, h = 12)
+  
+  # Calculate RMSE for LSTM and ARIMA
+  lstm_rmse <- sqrt(mean((city_data[[city_name]] - unscaled_predictions)^2, na.rm = TRUE))
+  arima_rmse <- sqrt(mean((tail(city_data[[city_name]], 12) - forecast_result$mean)^2, na.rm = TRUE))
+  
+  # Weighted hybrid model
+  total_rmse <- arima_rmse + lstm_rmse
+  lstm_weight <- 1 - (lstm_rmse / total_rmse)
+  arima_weight <- 1 - (arima_rmse / total_rmse)
+  
+  # Normalize weights
+  sum_weights <- lstm_weight + arima_weight
+  lstm_weight <- lstm_weight / sum_weights
+  arima_weight <- arima_weight / sum_weights
+  
+  # Calculate hybrid predictions
+  hybrid_predictions <- (arima_weight * forecast_result$mean +
+                         lstm_weight * tail(unscaled_predictions, 12))
+  hybrid_rmse <- sqrt(mean((tail(city_data[[city_name]], 12) - hybrid_predictions)^2))
+  
+  return(list(
+    city = city_name,
+    lstm_rmse = lstm_rmse,
+    arima_rmse = arima_rmse,
+    hybrid_rmse = hybrid_rmse,
+    lstm_weight = lstm_weight,
+    arima_weight = arima_weight
+  ))
+}
+
+# Run analysis for multiple cities
+run_multi_city_analysis <- function(temp_data) {
+  results <- list()
+  cities <- names(temp_data)[-1]  # Exclude 'time' column
+  
+  for (city in cities) {
+    city_data <- temp_data[c("time", city)] %>% na.omit()
+    city_data <- city_data %>% mutate(time = as.Date(time)) %>% column_to_rownames("time")
+    result <- analyze_city(city_data, city)
+    results[[city]] <- result
+  }
+  
+  return(bind_rows(results))
+}
+
+# Run analysis
+results_df <- run_multi_city_analysis(temp_data)
+
+# Print results ordered by hybrid_rmse
+print(results_df %>% arrange(hybrid_rmse))
+
+# Visualization
+ggplot(results_df, aes(x = city, y = hybrid_rmse)) +
+  geom_bar(stat = "identity", fill = "lightblue") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(title = "Hybrid Model Performance Across Cities",
+       x = "City",
+       y = "RMSE") +
+  coord_flip()
+
+
+```
+

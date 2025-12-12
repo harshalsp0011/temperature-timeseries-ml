@@ -1,0 +1,70 @@
+
+# Load libraries
+library(dplyr)
+library(ggplot2)
+library(forecast)
+library(tseries)
+library(keras)
+library(tensorflow)
+library(forecast)
+ls("package:forecast")
+
+
+# Load the dataset
+temp_data <- read.csv("US_City_Temp_Data.csv")
+#str(temp_data)
+
+# Convert the `time` column to Date format
+temp_data$time <- as.Date(temp_data$time, format = "%Y-%m-%d")
+
+
+# Explore the data
+str(temp_data)
+summary(temp_data)
+
+
+# Select data for Albuquerque
+city_data <- temp_data %>% select(time, albuquerque) %>% na.omit()
+
+# Convert to time series
+city_ts <- ts(city_data$albuquerque, start = c(1948, 1), frequency = 12)
+
+# Plot the time series
+plot(city_ts, main = "Monthly Temperature for Albuquerque", ylab = "Temperature (°C)", xlab = "Time")
+
+ggplot(city_data, aes(x = time, y = albuquerque)) +
+  geom_line() +
+  labs(title = "Temperature Over Time - Albuquerque", x = "Date", y = "Temperature (°C)")
+
+decomposed <- decompose(city_ts)
+plot(decomposed)
+
+adf.test(city_ts)
+
+
+#ARIMA Model Implementation
+
+city_ts_diff <- diff(city_ts, differences = 1)
+adf.test(city_ts_diff)
+
+arima_model <- auto.arima(city_ts)
+summary(arima_model)
+
+arima_forecast <- forecast(arima_model, h = 12)
+plot(arima_forecast)
+
+#LSTM Model Implementation
+
+scaled_data <- scale(city_data$albuquerque)
+
+X_train <- array(scaled_data, dim = c(length(scaled_data), 1, 1))
+Y_train <- scaled_data
+
+model <- keras_model_sequential() %>%
+  layer_lstm(units = 50, input_shape = c(1, 1), return_sequences = TRUE) %>%
+  layer_lstm(units = 50, return_sequences = FALSE) %>%
+  layer_dense(units = 1)
+
+
+
+
